@@ -40,7 +40,7 @@ If you would prefer you an also use `Invoke-NewLetsEncryptOrder` to do an intera
 ## Todo
 Lots!
 
-- Support for cancellation tokens
+- ~~Support for cancellation tokens~~ - Done
 - Document the cmdlets
 - Creation of simple TFS/VSTS extension
 - Use a DNS zone in Azure for the DNS validation records
