@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Certes;
 using Certes.Acme;
@@ -17,6 +18,9 @@ namespace Certiply
     /// <remarks>Certes can be found on GitHub here: https://github.com/fszlin/certes</remarks>
     public class CertesWrapper
     {
+        readonly CancellationTokenSource _CancellationSource = new CancellationTokenSource();
+        CancellationToken _CancellationToken;
+
         ICertManager _CertManager;
         Uri _LetsEncryptServer;
         AcmeContext _Acme;
@@ -79,8 +83,21 @@ namespace Certiply
         {
             if (certManager == null)
                 throw new ArgumentNullException(nameof(certManager));
+            
+            Init(certManager, WellKnownServers.LetsEncryptV2, _CancellationSource.Token);
+        }
 
-            Init(certManager, WellKnownServers.LetsEncryptV2);
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Certiply.CertesWrapper"/> class that supports a <see cref="CancellationToken"/>.
+        /// </summary>
+        /// <param name="certManager">An <see cref="Certiply.ICertManager"/> instance to manage the account, order, and certificate data</param>
+        /// <param name="cancellationToken">A token that can be used to cancel the current operation</param>
+        public CertesWrapper(ICertManager certManager, CancellationToken cancellationToken)
+        {
+            if (certManager == null)
+                throw new ArgumentNullException(nameof(certManager));
+
+            Init(certManager, WellKnownServers.LetsEncryptV2, cancellationToken);
         }
 
         /// <summary>
@@ -88,20 +105,21 @@ namespace Certiply
         /// </summary>
         /// <param name="certManager">An <see cref="Certiply.ICertManager"/> instance to manage the account, order, and certificate data</param>
         /// <param name="letsEncryptServer">The Let's Encrypt server URI. Defaults to production V2.</param>
-        public CertesWrapper(ICertManager certManager, Uri letsEncryptServer)
+        public CertesWrapper(ICertManager certManager, Uri letsEncryptServer, CancellationToken cancellationToken)
         {
             if (certManager == null)
                 throw new ArgumentNullException(nameof(certManager));
             if (letsEncryptServer == null || string.IsNullOrWhiteSpace(letsEncryptServer.ToString()))
                 throw new ArgumentNullException(nameof(letsEncryptServer));
 
-            Init(certManager, letsEncryptServer);
+            Init(certManager, letsEncryptServer, cancellationToken);
         }
 
-        void Init(ICertManager certManager, Uri letsEncryptServer)
+        void Init(ICertManager certManager, Uri letsEncryptServer, CancellationToken cancellationToken)
         {
             _CertManager = certManager;
             _LetsEncryptServer = letsEncryptServer;
+            _CancellationToken = cancellationToken;
 
             //default configuration values
             CertDistinguishedName = "C=CA, ST=State, L=City, O=Dept";
@@ -125,16 +143,27 @@ namespace Certiply
             if (!string.IsNullOrWhiteSpace(accountPemKey))
             {
                 Console.WriteLine("Loading account");
-                _Acme = new AcmeContext(_LetsEncryptServer, KeyFactory.FromPem(accountPemKey));
+                IKey accountKey = KeyFactory.FromPem(accountPemKey);
+
+                if (_CancellationToken.IsCancellationRequested)
+                    return;
+                
+                _Acme = new AcmeContext(_LetsEncryptServer, accountKey);
                 _Account = await _Acme.Account();
             }
 
             //otherwise create a new account and store the key
             if (_Account == null && !string.IsNullOrWhiteSpace(accountEmail))
             {
+                if (_CancellationToken.IsCancellationRequested)
+                    return;
+
                 Console.WriteLine("Creating new account");
                 _Acme = new AcmeContext(_LetsEncryptServer);
                 _Account = await _Acme.NewAccount(accountEmail, true);
+
+                if (_CancellationToken.IsCancellationRequested)
+                    return;
 
                 Console.WriteLine("Saving account key");
                 _CertManager.AccountKey = _Acme.AccountKey.ToPem();
@@ -158,9 +187,12 @@ namespace Certiply
                 throw new ArgumentException("No domains specified", nameof(domains));
             if (domains.First().StartsWith("*", StringComparison.InvariantCultureIgnoreCase) && !force)
                 throw new ArgumentException("Do not place an order for a wildcard certificate without using the base domain as the first in the array, e.g. { 'exmaple.com', '*.example.com' }", nameof(domains));
-
+            
             //start by making sure the order is created
             await BeginOrderAsync(domains, force);
+
+            if (_CancellationToken.IsCancellationRequested)
+                return;
 
             //complete the order process
             await ResumeOrderAsync();
@@ -187,6 +219,9 @@ namespace Certiply
             foreach (string domain in domains)
                 Console.WriteLine("  " + domain);
 
+            if (_CancellationToken.IsCancellationRequested)
+                return null;
+
             //make sure the cert manager is ready to handle the order
             _CertManager.InitForCommonName(domains.First());
 
@@ -205,12 +240,19 @@ namespace Certiply
             //return a simplified list of DNS records that need values adding
             foreach (var auth in await _OrderContext.Authorizations())
             {
+                if (_CancellationToken.IsCancellationRequested)
+                    return null;
+
                 var authResource = await auth.Resource();
 
                 if (authResource.Status != AuthorizationStatus.Valid)
                 {
                     string cn = authResource.Identifier.Value;
                     string validationDomain = DnsValidationRecordName + cn;
+
+                    if (_CancellationToken.IsCancellationRequested)
+                        return null;
+
                     var dnsChallenge = await auth.Dns();
                     var dnsTxt = _Acme.AccountKey.DnsTxt(dnsChallenge.Token);
 
@@ -242,17 +284,31 @@ namespace Certiply
             if (!await LoadOrderAsync(orderUri))
                 throw new Exception("Order not found, please begin a new order");
 
+            if (_CancellationToken.IsCancellationRequested)
+                return;
+
             //process each of the authorizations
             foreach (var auth in await _OrderContext.Authorizations())
+            {
+                if (_CancellationToken.IsCancellationRequested)
+                    return;
+
                 if (await ProcessAuthorizationAsync(auth) != AuthorizationStatus.Valid)
                 {
                     _Error = "Unable to authorize domain";
                     Console.WriteLine(_Error);
                     throw new Exception(_Error);
                 }
+            }
+
+            if (_CancellationToken.IsCancellationRequested)
+                return;
 
             //update our order - new orders should be status 'ready' at this point
             _Order = await _OrderContext.Resource();
+
+            if (_CancellationToken.IsCancellationRequested)
+                return;
 
             //see https://tools.ietf.org/html/draft-ietf-acme-acme-12#section-7.1.6
 
@@ -290,6 +346,9 @@ namespace Certiply
 
             if (!string.IsNullOrWhiteSpace(orderUri))
                 await LoadOrderAsync(orderUri);
+
+            if (_CancellationToken.IsCancellationRequested)
+                return;
 
             if (_OrderContext == null)
             {
@@ -336,18 +395,24 @@ namespace Certiply
             }
             else
             {
+                if (_CancellationToken.IsCancellationRequested)
+                    return AuthorizationStatus.Pending;
+
                 Console.WriteLine($"Authorizing {(authResource.Wildcard.HasValue && authResource.Wildcard.Value ? "*." : "")}{cn}");
 
                 //always use dns challenge
                 var dnsChallenge = await auth.Dns();
                 var dnsTxt = _Acme.AccountKey.DnsTxt(dnsChallenge.Token);
 
-                bool dnsResult = await Utils.CheckDnsTxtAsync(validationDomain, dnsTxt, DnsCheckRetryLimit, DnsCheckRetryInterval);
+                if (_CancellationToken.IsCancellationRequested)
+                    return AuthorizationStatus.Pending;
+
+                bool dnsResult = await Utils.CheckDnsTxtAsync(validationDomain, dnsTxt, _CancellationToken, DnsCheckRetryLimit, DnsCheckRetryInterval);
 
                 //quit if still no dns record after waiting
                 if (!dnsResult)
                 {
-                    Console.WriteLine("Timed out waiting for DNS validation record to exist");
+                    Console.WriteLine("DNS validation failed");
                     return AuthorizationStatus.Invalid;
                 }
 
@@ -361,15 +426,18 @@ namespace Certiply
                             retryAttempt => TimeSpan.FromSeconds(ValidationRetryInterval),
                             (delegateResult, timeSpan, context) =>
                             {
-                        Console.WriteLine($"Challenge validation returned status {delegateResult.Result.Status}, retrying in {ValidationRetryInterval}s");
+                                Console.WriteLine($"Challenge validation returned status {delegateResult.Result.Status}, retrying in {ValidationRetryInterval}s");
                             })
                         .ExecuteAsync(async () =>
                         {
+                            if (_CancellationToken.IsCancellationRequested)
+                                return null;
+
                             Console.WriteLine($"Validating challenge...");
                             return await dnsChallenge.Validate();
                         });
 
-                    if (challenge.Status != ChallengeStatus.Valid)
+                    if (challenge == null || challenge.Status != ChallengeStatus.Valid)
                     {
                         Console.WriteLine($"ACME validation failed for {cn}");
                         return AuthorizationStatus.Invalid;
@@ -409,6 +477,9 @@ namespace Certiply
             var privateKey = csrBuilder.Key;
             _CertManager.CertPrivateKey = privateKey.ToPem();
 
+            if (_CancellationToken.IsCancellationRequested)
+                return null;
+
             Console.WriteLine("Finalizing order");
             try
             {
@@ -420,6 +491,9 @@ namespace Certiply
                 if (ex.Error != null)
                     Console.WriteLine(ex.Error.Detail);
             }
+
+            if (_CancellationToken.IsCancellationRequested)
+                return null;
 
             return await _OrderContext.Resource();
         }

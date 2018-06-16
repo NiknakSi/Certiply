@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Management.Automation;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Certiply.PowerShell.Cmdlets
@@ -13,13 +14,13 @@ namespace Certiply.PowerShell.Cmdlets
 
         CertesWrapper _Wrapper;
 
-        protected override async Task BeginProcessingAsync()
+        protected override async Task BeginProcessingAsync(CancellationToken cancellationToken)
         {
             //setup the wrapper with our account
             if (!string.IsNullOrWhiteSpace(Configuration.LetsEncryptServerUrl))
-                _Wrapper = new CertesWrapper(Configuration.CertManager, new Uri(Configuration.LetsEncryptServerUrl));
+                _Wrapper = new CertesWrapper(Configuration.CertManager, new Uri(Configuration.LetsEncryptServerUrl), cancellationToken);
             else
-                _Wrapper = new CertesWrapper(Configuration.CertManager);
+                _Wrapper = new CertesWrapper(Configuration.CertManager, cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(Configuration.DistinguishedName))
                 _Wrapper.CertDistinguishedName = Configuration.DistinguishedName;
@@ -32,10 +33,10 @@ namespace Certiply.PowerShell.Cmdlets
             if (Configuration.ValidationRetryInterval > 0)
                 _Wrapper.ValidationRetryInterval = Configuration.ValidationRetryInterval;
 
-            await _Wrapper.AuthenticateAsync(Configuration.AccountEmail);
+            await _Wrapper.AuthenticateAsync();
         }
 
-        protected override async Task ProcessRecordAsync()
+        protected override async Task ProcessRecordAsync(CancellationToken cancellationToken)
         {
             await _Wrapper.ResumeOrderAsync();
 

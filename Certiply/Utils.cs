@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DnsClient;
 using Polly;
@@ -20,7 +21,7 @@ namespace Certiply
         /// <param name="expectedValue">Expected value within the record</param>
         /// <param name="retries">Number of permitted retries, defaults to 100</param>
         /// <param name="interval">Interval between retries, defaults to 30 seconds</param>
-        public static async Task<bool> CheckDnsTxtAsync(string record, string expectedValue, int retries = 100, int interval = 30)
+        public static async Task<bool> CheckDnsTxtAsync(string record, string expectedValue, CancellationToken cancellationToken, int retries = 100, int interval = 30)
         {
             bool outcome = false;
 
@@ -30,6 +31,9 @@ namespace Certiply
             //lookup the nameserver(s) first so we can query them directly and circumvent any caching
             string domainName = record.TrimStart(new char[] { '*', '.' });
             var result = await systemClient.QueryAsync(domainName, QueryType.NS);
+
+            if (cancellationToken.IsCancellationRequested)
+                return false;
 
             //more than likely we'll need to locate the authoritative servers
             if (!result.Answers.Any() && result.Authorities.Any())
@@ -43,6 +47,9 @@ namespace Certiply
 
                 foreach (var ns in nameservers)
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                        return false;
+
                     result = await systemClient.QueryAsync(ns.NSDName, QueryType.A);
                     nameserverAddresses.Add(ns.NSDName, System.Net.IPAddress.Parse(result.Answers.FirstOrDefault().RecordToString()));
                 }
@@ -57,7 +64,7 @@ namespace Certiply
                     .HandleResult<IDnsQueryResponse>(q => q.HasError || !q.Answers.Any(r => r.RecordToString().Trim('"') == expectedValue))
                     .WaitAndRetryAsync(
                         retries,
-                        retryAttempt => TimeSpan.FromMilliseconds(interval),
+                        retryAttempt => TimeSpan.FromSeconds(interval),
                         (delegateResult, timeSpan, context) =>
                         {
                             Console.WriteLine($"Add a DNS TXT record {record} which includes a value of {expectedValue}");
@@ -69,11 +76,14 @@ namespace Certiply
                         })
                     .ExecuteAsync(async () =>
                     {
+                        if (cancellationToken.IsCancellationRequested)
+                            return null;
+
                         Console.WriteLine($"Checking for TXT record and value at {record}");
                         return await nsClient.QueryAsync(record, QueryType.TXT);
                     });
 
-                if (!result.HasError && result.Answers.Any(r => r.RecordToString().Trim('"') == expectedValue))
+                if (result != null && !result.HasError && result.Answers.Any(r => r.RecordToString().Trim('"') == expectedValue))
                     outcome = true;
             }
 
