@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DnsClient;
+using DnsClient.Protocol;
 using Polly;
 
 namespace Certiply
@@ -25,8 +26,10 @@ namespace Certiply
         {
             bool outcome = false;
 
-            var systemClient = new LookupClient();
-            systemClient.UseCache = true;
+            var systemClient = new LookupClient
+            {
+                UseCache = true
+            };
 
             //lookup the nameserver(s) first so we can query them directly and circumvent any caching
             string domainName = record.TrimStart(new char[] { '*', '.' });
@@ -51,17 +54,22 @@ namespace Certiply
                         return false;
 
                     result = await systemClient.QueryAsync(ns.NSDName, QueryType.A);
-                    nameserverAddresses.Add(ns.NSDName, System.Net.IPAddress.Parse(result.Answers.FirstOrDefault().RecordToString()));
+                    if (result.Answers.FirstOrDefault() is ARecord nsRecord)
+                        nameserverAddresses.Add(ns.NSDName, nsRecord.Address);
                 }
 
-                var nsClient = new LookupClient(nameserverAddresses.Select(KeyValuePair => KeyValuePair.Value).ToArray());
-                nsClient.UseCache = false;
+                var nsClient = new LookupClient(nameserverAddresses.Select(KeyValuePair => KeyValuePair.Value).ToArray())
+                {
+                    UseCache = false
+                };
 
                 //check all of the answers for the query since multiple txt values are permitted
                 //see https://community.letsencrypt.org/t/wildcard-issuance-two-txt-records-for-the-same-name/54528
 
+                bool expectedValueInResults(IDnsQueryResponse query) => query.Answers.Any(r => r is TxtRecord txtRecord && txtRecord.Text.Any(t => t == expectedValue));
+
                 result = await Policy
-                    .HandleResult<IDnsQueryResponse>(q => q.HasError || !q.Answers.Any(r => r.RecordToString().Trim('"') == expectedValue))
+                    .HandleResult<IDnsQueryResponse>(q => q.HasError || !expectedValueInResults(q))
                     .WaitAndRetryAsync(
                         retries,
                         retryAttempt => TimeSpan.FromSeconds(interval),
@@ -83,7 +91,7 @@ namespace Certiply
                         return await nsClient.QueryAsync(record, QueryType.TXT);
                     });
 
-                if (result != null && !result.HasError && result.Answers.Any(r => r.RecordToString().Trim('"') == expectedValue))
+                if (result != null && !result.HasError && expectedValueInResults(result))
                     outcome = true;
             }
 

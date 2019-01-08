@@ -323,7 +323,7 @@ namespace Certiply
             //state if it expires, or one of its authorizations enters a final
             //state other than "valid" ("expired", "revoked", "deactivated").
 
-            if (_Order.Status == OrderStatus.Ready)
+            if (_Order.Status == OrderStatus.Ready || _Order.Status == OrderStatus.Pending)
                 _Order = await FinalizeOrderAsync();
 
             if (_Order.Status != OrderStatus.Valid)
