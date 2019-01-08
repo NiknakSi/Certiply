@@ -323,9 +323,7 @@ namespace Certiply
             //state if it expires, or one of its authorizations enters a final
             //state other than "valid" ("expired", "revoked", "deactivated").
 
-            //but... https://community.letsencrypt.org/t/acmev2-order-ready-status/62866
-            //TODO: Remove pending after June 19th/July 5th 2018
-            if (_Order.Status == OrderStatus.Ready || _Order.Status == OrderStatus.Pending)
+            if (_Order.Status == OrderStatus.Ready)
                 _Order = await FinalizeOrderAsync();
 
             if (_Order.Status != OrderStatus.Valid)
