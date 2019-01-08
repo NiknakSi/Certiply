@@ -21,10 +21,10 @@
     <Compile Remove="PowerShell\Cmdlets.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Certes" Version="2.2.2" />
-    <PackageReference Include="DnsClient" Version="1.0.7" />
-    <PackageReference Include="Polly" Version="6.0.1" />
-    <PackageReference Include="PowerShellStandard.Library" Version="5.1.0-preview-03" />
+    <PackageReference Include="Certes" Version="2.3.3" />
+    <PackageReference Include="DnsClient" Version="1.2.0" />
+    <PackageReference Include="Polly" Version="6.1.2" />
+    <PackageReference Include="PowerShellStandard.Library" Version="5.1.0" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="PowerShell\" />
