@@ -1,5 +1,5 @@
 # Certiply
-The goal for this project is to allow for Let's Encrypt certificate ordering directly from a TFS/VSTS build or release definition. To achieve this I've used the [certes](https://github.com/fszlin/certes) ACME client and wrapped it with enough extra logic and safety to drive it with some simple PowerShell cmdlets.
+The goal for this project is to allow for Let's Encrypt certificate ordering directly from a TFS/VSTS/Azure DevOps build or release definition. To achieve this I've used the [certes](https://github.com/fszlin/certes) ACME client and wrapped it with enough extra logic and safety to drive it with some simple PowerShell cmdlets.
 
 It's written in C# using .NET Standard 2.0 and runs using PowerShell 6 (Core) on Windows, Linux, and Mac, or 5.1 on Windows. There are no releases yet so you'll need to build it yourself for now.
 
