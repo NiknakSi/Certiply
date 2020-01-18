@@ -23,7 +23,7 @@
   <ItemGroup>
     <PackageReference Include="Certes" Version="2.3.3" />
     <PackageReference Include="DnsClient" Version="1.2.0" />
-    <PackageReference Include="Polly" Version="7.1.0" />
+    <PackageReference Include="Polly" Version="7.2.0" />
     <PackageReference Include="PowerShellStandard.Library" Version="5.1.0" />
   </ItemGroup>
   <ItemGroup>
