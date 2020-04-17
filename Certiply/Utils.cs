@@ -26,10 +26,10 @@ namespace Certiply
         {
             bool outcome = false;
 
-            var systemClient = new LookupClient
+            var systemClient = new LookupClient(new LookupClientOptions
             {
                 UseCache = true
-            };
+            });
 
             //lookup the nameserver(s) first so we can query them directly and circumvent any caching
             string domainName = record.TrimStart(new char[] { '*', '.' });
@@ -58,10 +58,10 @@ namespace Certiply
                         nameserverAddresses.Add(ns.NSDName, nsRecord.Address);
                 }
 
-                var nsClient = new LookupClient(nameserverAddresses.Select(KeyValuePair => KeyValuePair.Value).ToArray())
+                var nsClient = new LookupClient(new LookupClientOptions(nameserverAddresses.Select(KeyValuePair => KeyValuePair.Value).ToArray())
                 {
                     UseCache = false
-                };
+                });
 
                 //check all of the answers for the query since multiple txt values are permitted
                 //see https://community.letsencrypt.org/t/wildcard-issuance-two-txt-records-for-the-same-name/54528
